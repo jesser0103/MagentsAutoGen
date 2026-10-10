@@ -1,0 +1,47 @@
+{
+  "name": "magent-autogen-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "lint": "next lint",
+    "bootstrap-admin": "tsx scripts/bootstrap-admin.ts"
+  },
+  "dependencies": {
+    "@radix-ui/react-dialog": "^1.1.0",
+    "@radix-ui/react-slot": "^1.1.0",
+    "@radix-ui/react-tabs": "^1.1.0",
+    "@types/diff": "^7.0.2",
+    "@types/file-saver": "^2.0.7",
+    "@xyflow/react": "^12.0.0",
+    "better-auth": "^1.7.5",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.0",
+    "diff": "^9.0.0",
+    "file-saver": "^2.0.5",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.400.0",
+    "next": "14.2.5",
+    "pg": "^8.23.0",
+    "react": "^18.3.0",
+    "react-dom": "^18.3.0",
+    "recharts": "^3.10.1",
+    "shiki": "^4.4.2",
+    "sonner": "^2.0.8",
+    "tailwind-merge": "^2.3.0",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^18.3.0",
+    "@types/react-dom": "^18.3.0",
+    "autoprefixer": "^10.4.19",
+    "postcss": "^8.4.38",
+    "tailwindcss": "^3.4.4",
+    "tsx": "^4.23.15",
+    "typescript": "^5.4.5"
+  }
+}

@@ -1,0 +1,35 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+coverage.xml
+htmlcov/
+data/checkpoints/
+data/chroma/
+data/runs/
+logs/
+workspace/
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+data/conversations/
+test-results/
+.tools/
+# Better Auth SQLite database — contains user credentials, never commit
+frontend/auth.db
+frontend/auth.db-shm
+frontend/auth.db-wal
+# Audit logs — append-only, stored in data/audit/
+data/audit/
+# Runtime server logs
+data/*.log
+# Internal documents — not for public repo
+docs/rag/
+PROJECT_EXECUTION_PLAN.md
+*.pdf
+*.docx
+*.doc
+# IDE project files
+.idea/

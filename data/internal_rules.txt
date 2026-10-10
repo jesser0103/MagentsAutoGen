@@ -1,0 +1,16 @@
+# Smartovate local policy seed rules
+
+## SEC-001 Public Azure access is denied
+Do not create public SSH, RDP, storage, or blob access. Use private networking or an approved restricted network rule.
+
+## SEC-002 Encryption and HTTPS are mandatory
+Use encryption at rest and HTTPS-only settings for every supported Azure data service.
+
+## SEC-003 No plaintext secrets
+Use managed identity or Azure Key Vault references. Never hardcode passwords, connection strings, or API keys.
+
+## GOV-001 Required resource tags
+Every Azure resource must include environment, owner, and cost_center tags.
+
+## GOV-002 Least-privilege RBAC
+Do not assign Owner or Contributor at subscription scope. Use the narrowest role and resource scope possible.

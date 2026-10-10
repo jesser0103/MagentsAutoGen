@@ -1,0 +1,178 @@
+# MagentAutoGen — Docker Compose for Next.js + FastAPI + Postgres
+#
+# Usage:
+#   copy .env.example to .env and set BETTER_AUTH_SECRET, POSTGRES_PASSWORD,
+#   BOOTSTRAP_ADMIN_EMAIL, and BOOTSTRAP_ADMIN_PASSWORD
+#   docker compose up --build   # Start all services (creates first admin)
+#   docker compose down         # Stop and remove containers
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    image: magent-autogen-api:latest
+    container_name: magent-autogen-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    environment:
+      MAGENT_PROVIDER: ${MAGENT_PROVIDER:-demo}
+      MAGENT_CHECKPOINT_DIR: /app/data/checkpoints
+      MAGENT_CHROMA_DIR: /app/data/chroma
+      MAGENT_PRICING_FILE: /app/config/pricing.json
+      MAGENT_SANDBOX_URL: http://sandbox:8081
+      PYTHONUNBUFFERED: "1"
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-in-production}
+    volumes:
+      - magent_checkpoints:/app/data/checkpoints
+      - magent_chroma:/app/data/chroma
+      - magent_runs:/app/data/runs
+    networks:
+      - app
+      - sandbox_internal
+    depends_on:
+      sandbox:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  sandbox:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.sandbox
+    image: magent-autogen-sandbox:latest
+    container_name: magent-autogen-sandbox
+    restart: unless-stopped
+    environment:
+      SANDBOX_VALIDATION_TIMEOUT_SECONDS: ${MAGENT_SANDBOX_TIMEOUT_SECONDS:-120}
+      SANDBOX_MAX_REQUEST_BYTES: "1048576"
+      # Only the sandbox worker receives this non-interactive Infracost credential.
+      INFRACOST_CLI_AUTHENTICATION_TOKEN: ${INFRACOST_CLI_AUTHENTICATION_TOKEN:-}
+      PYTHONUNBUFFERED: "1"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+    networks:
+      - sandbox_internal
+      # Infracost's fixed price lookup needs outbound HTTPS. Generated code is
+      # never executed by this worker and the API remains on sandbox_internal.
+      - pricing_egress
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        INTERNAL_API_URL: http://api:8000
+    image: magent-autogen-frontend:latest
+    container_name: magent-autogen-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_API_URL: ""
+      INTERNAL_API_URL: "http://api:8000"
+      NEXT_PUBLIC_PROVIDER_MODE: ${MAGENT_PROVIDER:-demo}
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-magent}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-in-production}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@localhost}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Administrator}
+    networks:
+      - app
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      auth-init:
+        condition: service_completed_successfully
+
+  auth-init:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: auth-init
+    image: magent-autogen-auth-init:latest
+    container_name: magent-autogen-auth-init
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-magent}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-dev-secret-change-in-production}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@localhost}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Administrator}
+    networks:
+      - app
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: magent-autogen-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: magent
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-magent}
+      POSTGRES_DB: magent_auth
+    ports:
+      - "5432:5432"
+    volumes:
+      - magent_postgres:/var/lib/postgresql/data
+    networks:
+      - app
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U magent -d magent_auth"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  app:
+  sandbox_internal:
+    internal: true
+  pricing_egress:
+
+volumes:
+  magent_checkpoints:
+    driver: local
+  magent_chroma:
+    driver: local
+  magent_runs:
+    driver: local
+  magent_postgres:
+    driver: local

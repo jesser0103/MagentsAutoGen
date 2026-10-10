@@ -1,0 +1,62 @@
+# ============================================================
+# MagentAutoGen — FastAPI Application Dockerfile
+# ============================================================
+# Multi-stage build:
+#   Stage 0 (tfsec)   — source the pinned infrastructure scanner binary.
+#   Stage 1 (builder) — install Python deps in an isolated layer.
+#   Stage 2 (runtime) — lean final image, non-root user, no build tools.
+# ============================================================
+
+# Keep the infrastructure scanner inside the container instead of requiring
+# every developer or deployment host to install it separately.
+ARG TFSEC_VERSION=1.28.14
+FROM ghcr.io/aquasecurity/tfsec:v${TFSEC_VERSION} AS tfsec
+
+# ---- Stage 1: dependency builder --------------------------------
+FROM python:3.12-slim AS builder
+
+WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
+        gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir --timeout 120 --retries 5 --prefix=/install \
+        -r requirements.txt
+
+
+# ---- Stage 2: runtime -------------------------------------------
+FROM python:3.12-slim AS runtime
+
+LABEL org.opencontainers.image.title="MagentAutoGen API" \
+      org.opencontainers.image.description="FastAPI backend for MagentAutoGen"
+
+RUN groupadd --gid 10001 appgroup \
+ && useradd --uid 10001 --gid appgroup --shell /bin/false --no-create-home appuser
+
+WORKDIR /app
+
+COPY --from=builder /install /usr/local
+COPY --from=tfsec /usr/bin/tfsec /usr/local/bin/tfsec
+
+COPY src/        ./src/
+COPY config/     ./config/
+COPY data/       ./data/
+COPY docs/       ./docs/
+COPY pyproject.toml .
+
+RUN tfsec --version \
+ && mkdir -p data/checkpoints data/chroma data/runs \
+ && chown -R appuser:appgroup /app
+
+USER appuser
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
+CMD ["python", "-m", "uvicorn", "src.api.server:app", "--host", "0.0.0.0", "--port", "8000"]

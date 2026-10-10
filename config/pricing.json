@@ -1,0 +1,49 @@
+{
+  "_comment": "MagentAutoGen model pricing configuration (MA-702). Prices are in USD per 1,000 tokens. Update these when Azure publishes new rates. Never hardcode prices in source code.",
+  "_disclaimer": "These are estimated list prices for reference only. Actual charges appear in Azure Cost Management. See MA-704.",
+  "_version": "1.0",
+  "_updated": "2026-08-07",
+  "models": {
+    "gpt-4o": {
+      "input_per_1k_tokens": 0.005,
+      "output_per_1k_tokens": 0.015,
+      "currency": "USD"
+    },
+    "gpt-4o-mini": {
+      "input_per_1k_tokens": 0.00015,
+      "output_per_1k_tokens": 0.0006,
+      "currency": "USD"
+    },
+    "gpt-4": {
+      "input_per_1k_tokens": 0.03,
+      "output_per_1k_tokens": 0.06,
+      "currency": "USD"
+    },
+    "gpt-35-turbo": {
+      "input_per_1k_tokens": 0.0005,
+      "output_per_1k_tokens": 0.0015,
+      "currency": "USD"
+    },
+    "text-embedding-ada-002": {
+      "input_per_1k_tokens": 0.0001,
+      "output_per_1k_tokens": 0.0,
+      "currency": "USD"
+    },
+    "text-embedding-3-small": {
+      "input_per_1k_tokens": 0.00002,
+      "output_per_1k_tokens": 0.0,
+      "currency": "USD"
+    },
+    "text-embedding-3-large": {
+      "input_per_1k_tokens": 0.00013,
+      "output_per_1k_tokens": 0.0,
+      "currency": "USD"
+    },
+    "default": {
+      "input_per_1k_tokens": 0.005,
+      "output_per_1k_tokens": 0.015,
+      "currency": "USD",
+      "_note": "Fallback pricing used when the deployment name is not in this file."
+    }
+  }
+}

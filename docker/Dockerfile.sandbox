@@ -1,0 +1,41 @@
+# Dedicated validation worker. It contains no Docker socket and exposes only
+# fixed Python compilation and Terraform formatting operations.
+ARG TERRAFORM_VERSION=1.9.8
+FROM hashicorp/terraform:${TERRAFORM_VERSION} AS terraform
+
+FROM alpine:3.20 AS infracost
+
+# Infracost v2 moved to the infracost/cli repository.  Its maintained installer
+# selects the current compatible Linux release instead of using the retired v2 URL.
+RUN apk add --no-cache curl \
+ && curl --fail --location --silent --show-error \
+      https://raw.githubusercontent.com/infracost/cli/main/scripts/install.sh \
+      | sh
+
+FROM python:3.12-slim AS runtime
+
+LABEL org.opencontainers.image.title="MagentAutoGen Sandbox Worker" \
+      org.opencontainers.image.description="Locked-down artifact validation worker"
+
+RUN groupadd --gid 10002 sandbox \
+ && useradd --uid 10002 --gid sandbox --shell /bin/false --no-create-home sandbox
+
+WORKDIR /app
+
+COPY --from=terraform /bin/terraform /usr/local/bin/terraform
+COPY --from=infracost /usr/local/bin/infracost /usr/local/bin/infracost
+COPY src/security/sandbox_worker.py ./sandbox_worker.py
+
+RUN terraform version \
+ && infracost --version \
+ && chown -R sandbox:sandbox /app
+
+USER sandbox
+ENV HOME=/tmp
+
+EXPOSE 8081
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8081/health')" || exit 1
+
+CMD ["python", "/app/sandbox_worker.py"]

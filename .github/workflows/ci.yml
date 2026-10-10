@@ -1,0 +1,147 @@
+# MagentAutoGen — GitHub Actions CI Pipeline (MA-802)
+#
+# Runs on every push and pull request to main.
+# Three jobs:
+#   lint   — Ruff code quality check
+#   test   — Unit test suite (no Azure, no Docker required)
+#   build  — Docker image build validation
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+  # Use demo provider in CI — no Azure credentials required.
+  MAGENT_PROVIDER: demo
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 1: Lint
+  # ──────────────────────────────────────────────────────────────────────────
+  quality:
+    name: Python quality and static security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install quality tools
+        run: pip install "ruff>=0.6.0" "bandit>=1.7.9"
+
+      - name: Lint Python
+        run: ruff check src/ tests/
+
+      - name: Scan Python source
+        run: bandit -r src/ -q -lll
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 2: Unit tests
+  # ──────────────────────────────────────────────────────────────────────────
+  test:
+    name: Unit tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install application and test dependencies
+        run: pip install --no-cache-dir -r requirements.txt pytest
+
+      - name: Check installed dependencies
+        run: pip check
+
+      - name: Run unit tests
+        run: |
+          python -m pytest tests/ -v -m "not integration" --tb=short \
+            --junitxml=test-results/junit.xml
+        env:
+          MAGENT_PROVIDER: demo
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-py${{ matrix.python-version }}
+          path: test-results/
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Job 3: Docker build validation
+  # ──────────────────────────────────────────────────────────────────────────
+  frontend:
+    name: Next.js build and type check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+  containers:
+    name: Container build and API smoke test
+    runs-on: ubuntu-latest
+    needs: [quality, test, frontend]
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Build FastAPI image
+        run: docker build --tag magent-autogen-api:ci --file docker/Dockerfile.api .
+
+      - name: Build sandbox-worker image
+        run: docker build --tag magent-autogen-sandbox:ci --file docker/Dockerfile.sandbox .
+
+      - name: Build Next.js image
+        run: docker build --tag magent-autogen-frontend:ci --file frontend/Dockerfile frontend/
+
+      - name: Smoke test — container starts and serves health endpoint
+        run: |
+          docker run --detach --rm --name magent-api-ci \
+            --env MAGENT_PROVIDER=demo \
+            --publish 8000:8000 \
+            magent-autogen-api:ci
+          trap 'docker logs magent-api-ci; docker stop magent-api-ci' EXIT
+          for i in $(seq 1 15); do
+            if curl --fail --silent --show-error http://localhost:8000/health; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "FastAPI health endpoint did not become ready in time." >&2
+          exit 1
