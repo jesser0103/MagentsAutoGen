@@ -381,10 +381,10 @@ Copy [`.env.example`](.env.example) to `.env`. The example file is fully documen
 | `DATABASE_URL` | — | `postgres://magent:magent@localhost:5432/magent_auth` | Compose overrides this automatically |
 | `BOOTSTRAP_ADMIN_EMAIL` | ✅ | `admin@localhost` | First admin account email |
 | `BOOTSTRAP_ADMIN_PASSWORD` | ✅ | `ChangeMe_Admin8` | First admin password — change before deploy |
-| `GITHUB_TOKEN` | — | _(empty)_ | PAT with `repo` scope — enables Export to PR |
-| `GITHUB_REPO` | — | _(empty)_ | Target repo for PR export (`owner/repository`) |
-| `INFRACOST_CLI_AUTHENTICATION_TOKEN` | — | _(empty)_ | Terraform cost estimates inside the sandbox |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | _(empty)_ | OTLP collector endpoint — leave empty to disable |
+| `GITHUB_TOKEN` | — | — | PAT with `repo` scope — enables Export to PR |
+| `GITHUB_REPO` | — | — | Target repo for PR export (`owner/repository`) |
+| `INFRACOST_CLI_AUTHENTICATION_TOKEN` | — | — | Terraform cost estimates inside the sandbox |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | — | OTLP collector endpoint — leave empty to disable |
 
 > All remaining variables (storage paths, timeouts, retry limits, OAuth providers) have sensible defaults and are documented in [`.env.example`](.env.example).
 
