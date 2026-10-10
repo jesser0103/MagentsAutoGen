@@ -151,8 +151,20 @@ The workflow is a **typed finite-state machine** — not an open-ended chat loop
 | **Agent Inspector** | Drill into any agent node to see its input, output, and timing |
 | **Red Team Panel** | Built-in prompt injection fixtures; submit and confirm block without leaving the UI |
 | **Admin Panel** | User management, role assignment, bootstrap admin configuration |
+| **Export to PR** | One-click button to open a GitHub Pull Request with the generated artifact |
 
 All dashboard state is derived from the FastAPI SSE event stream and persisted run state — no client-side polling state machine.
+
+#### GitHub Pull Request export
+
+When a run completes successfully, the **Export to PR** button in the Code Viewer calls `src/integrations/github_exporter.py`, which:
+
+1. Creates a new branch in the target repository (`GITHUB_REPO`)
+2. Commits the generated Python or Terraform artifact to that branch
+3. Opens a **draft Pull Request** with the run ID, scanner findings summary, and FinOps estimate in the PR description
+4. Returns the PR URL to the dashboard for one-click navigation
+
+Requires `GITHUB_TOKEN` (a GitHub Personal Access Token with `repo` scope) and `GITHUB_REPO` (`owner/repository`) set in `.env`.
 
 ---
 
@@ -242,7 +254,7 @@ Copy [`.env.example`](.env.example) to `.env`. The full file is documented inlin
 | `DATABASE_URL` | — | `postgres://magent:magent@localhost:5432/magent_auth` | Compose sets this automatically |
 | `BOOTSTRAP_ADMIN_EMAIL` | ✅ | `admin@localhost` | First admin account email |
 | `BOOTSTRAP_ADMIN_PASSWORD` | ✅ | `ChangeMe_Admin8` | First admin password — change before deploy |
-| `GITHUB_TOKEN` | — | _(empty)_ | PAT for pull-request artifact export |
+| `GITHUB_TOKEN` | — | _(empty)_ | GitHub PAT (`repo` scope) — enables the **Export to PR** button to open a Pull Request with the generated artifact |
 | `INFRACOST_CLI_AUTHENTICATION_TOKEN` | — | _(empty)_ | Terraform cost estimates in the sandbox |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | — | _(empty)_ | OpenTelemetry collector — leave empty to disable |
 
