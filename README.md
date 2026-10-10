@@ -9,40 +9,36 @@ A secure, human-governed multi-agent system that generates reviewed **Python** a
 ## Workflow
 
 ```mermaid
-flowchart TD
-    A([👤 Operator submits request]) --> B
+flowchart LR
+    A([👤 Operator]) --> B
 
-    B{{"🛡️ Azure AI Content Safety\nPrompt Shields"}}
-    B -->|Injection detected| BLOCK([🚫 Request blocked\nno agent receives it])
+    B{{"🛡️ Prompt\nShields"}}
+    B -->|Injection\ndetected| BLOCK([🚫 Blocked])
     B -->|Safe| C
 
-    C["📋 Planner Agent\nStructured plan · open questions · step types"]
-    C --> D{Unresolved\nrequired questions?}
+    C["📋 Planner\nPlan · questions · step type"] --> D{Open\nquestions?}
     D -->|Yes| C
     D -->|No| E
 
-    E(["⏸️ Human Approval Checkpoint\n— persisted, survives restart —"])
-    E -->|Reject + feedback| C
+    E(["⏸️ Approval\nCheckpoint"])
+    E -->|Reject +\nfeedback| C
     E -->|Approve| F
 
-    F["📚 RAG Policy Retrieval\nChromaDB · relevance threshold · Azure OpenAI embeddings"]
-    F --> G
+    F["📚 RAG\nRetrieval"] --> G
 
-    G["⚙️ Coder Agent\nPython / Terraform artifact\nmandatory governance tags injected"]
-    G --> H
+    G["⚙️ Coder\nPython / Terraform"] --> H
 
-    H["🔍 Static Analysis\ntfsec · Checkov · Bandit · Tag governance"]
-    H --> I
+    H["🔍 Static Analysis\ntfsec · Checkov · Bandit"] --> I
 
-    I["🤖 Reviewer Agent\nEvidence-based verdict"]
+    I["🤖 Reviewer"]
     I -->|APPROVE| J
-    I -->|REJECT + required changes| K{Round ≤ 5?}
+    I -->|REJECT| K{Round\n≤ 5?}
     K -->|Yes → revise| G
-    K -->|No → escalate| ESC([⚠️ needs_manual_intervention])
+    K -->|No| ESC([⚠️ Escalate])
 
-    J["🐳 Docker Validation Sandbox\nNo network · read-only FS · no terraform apply"]
-    J -->|Validation failed| I
-    J -->|Passed| DONE([✅ Artifact delivered\nFinOps summary · audit trail · SSE events])
+    J["🐳 Docker\nSandbox"]
+    J -->|Failed| I
+    J -->|Passed| DONE([✅ Artifact\nDelivered])
 
     style BLOCK fill:#c0392b,color:#fff,stroke:none
     style ESC fill:#e67e22,color:#fff,stroke:none
