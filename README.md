@@ -1,4 +1,4 @@
-# MagentAutoGen — AI Multi-Agent Control Plane for Azure
+# MagentAutoGen — Automated Cloud Code Generation with Human Oversight
 
 > **v1.0 — Complete** · Full-stack AI pipeline with Azure OpenAI, FastAPI backend, Next.js dashboard, Docker sandbox, RAG, FinOps, and CI/CD — all delivered.
 
