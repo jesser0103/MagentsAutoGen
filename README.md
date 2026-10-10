@@ -10,40 +10,62 @@ A secure, human-governed multi-agent system that generates reviewed **Python** a
 
 ```mermaid
 flowchart LR
-    A([👤 Operator]) --> B
+    subgraph INPUT["🔐  Input & Screening"]
+        A(["👤 Operator\nsubmits request"])
+        B{{"🛡️ Azure AI Content Safety\nPrompt Shields"}}
+        BLOCK(["🚫 Request Blocked\nno agent receives it"])
+        A --> B
+        B -->|Injection detected| BLOCK
+    end
 
-    B{{"🛡️ Prompt\nShields"}}
-    B -->|Injection\ndetected| BLOCK([🚫 Blocked])
+    subgraph PLAN["📋  Planning & Approval"]
+        C["📋 Planner Agent\nStructured plan · open questions\nstep type · assumptions"]
+        D{"Unresolved\nquestions?"}
+        E(["⏸️ Human Approval Checkpoint\npersisted · survives restart"])
+        C --> D
+        D -->|Yes| C
+        D -->|No| E
+    end
+
+    subgraph GEN["⚙️  Code Generation"]
+        F["📚 RAG Policy Retrieval\nChromaDB · relevance threshold\nAzure OpenAI embeddings"]
+        G["⚙️ Coder Agent\nPython / Terraform artifact\ngovernance tags injected"]
+        F --> G
+    end
+
+    subgraph SEC["🔍  Security Review"]
+        H["🔍 Static Analysis\ntfsec · Checkov · Bandit\nTag governance engine"]
+        I["🤖 Reviewer Agent\nevidence-based verdict"]
+        K{"Round ≤ 5?"}
+        ESC(["⚠️ needs_manual_intervention"])
+        H --> I
+        I -->|REJECT| K
+        K -->|Yes → revise| G
+        K -->|No| ESC
+    end
+
+    subgraph VAL["🐳  Validation & Delivery"]
+        J["🐳 Docker Sandbox\nno network · read-only FS\nno terraform apply"]
+        DONE(["✅ Artifact Delivered\nFinOps summary · audit trail\nSSE event stream"])
+        J -->|Failed| I
+        J -->|Passed| DONE
+    end
+
     B -->|Safe| C
-
-    C["📋 Planner\nPlan · questions · step type"] --> D{Open\nquestions?}
-    D -->|Yes| C
-    D -->|No| E
-
-    E(["⏸️ Approval\nCheckpoint"])
-    E -->|Reject +\nfeedback| C
+    E -->|Reject + feedback| C
     E -->|Approve| F
-
-    F["📚 RAG\nRetrieval"] --> G
-
-    G["⚙️ Coder\nPython / Terraform"] --> H
-
-    H["🔍 Static Analysis\ntfsec · Checkov · Bandit"] --> I
-
-    I["🤖 Reviewer"]
+    G --> H
     I -->|APPROVE| J
-    I -->|REJECT| K{Round\n≤ 5?}
-    K -->|Yes → revise| G
-    K -->|No| ESC([⚠️ Escalate])
-
-    J["🐳 Docker\nSandbox"]
-    J -->|Failed| I
-    J -->|Passed| DONE([✅ Artifact\nDelivered])
 
     style BLOCK fill:#c0392b,color:#fff,stroke:none
-    style ESC fill:#e67e22,color:#fff,stroke:none
-    style DONE fill:#27ae60,color:#fff,stroke:none
-    style E fill:#2980b9,color:#fff,stroke:none
+    style ESC   fill:#e67e22,color:#fff,stroke:none
+    style DONE  fill:#27ae60,color:#fff,stroke:none
+    style E     fill:#2980b9,color:#fff,stroke:none
+    style INPUT fill:#0d1117,stroke:#30363d,color:#e6edf3
+    style PLAN  fill:#0d1117,stroke:#30363d,color:#e6edf3
+    style GEN   fill:#0d1117,stroke:#30363d,color:#e6edf3
+    style SEC   fill:#0d1117,stroke:#30363d,color:#e6edf3
+    style VAL   fill:#0d1117,stroke:#30363d,color:#e6edf3
 ```
 
 **Nothing runs on the host machine. Generated code never executes before a human approves the plan.**
@@ -203,102 +225,28 @@ The following are fully implemented and fail-closed locally. They require live A
 
 ## Environment variables
 
-Copy [`.env.example`](.env.example) to `.env` and fill in the values. Variables marked **✅ required** will cause a startup error if missing; **⚠️ Azure mode** means required only when `MAGENT_PROVIDER=azure`.
+Copy [`.env.example`](.env.example) to `.env`. The full file is documented inline — here are the variables you need to set to run the app.
 
-### Azure OpenAI
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `AZURE_OPENAI_ENDPOINT` | ✅ | — | Resource endpoint, e.g. `https://<resource>.openai.azure.com/` |
+| Variable | Required | Default | Notes |
+|----------|:--------:|---------|-------|
+| `AZURE_OPENAI_ENDPOINT` | ✅ | — | `https://<resource>.openai.azure.com/` |
 | `AZURE_OPENAI_API_KEY` | ✅ | — | Azure OpenAI API key |
-| `AZURE_OPENAI_API_VERSION` | ✅ | `2024-10-21` | API version for requests |
-| `AZURE_OPENAI_DEPLOYMENT_NAME` | ✅ | — | Chat model deployment name (e.g. `gpt-4o`) |
-| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | ⚠️ | — | Embedding deployment name (e.g. `text-embedding-3-small`). Local fallback uses sentence-transformers. |
+| `AZURE_OPENAI_DEPLOYMENT_NAME` | ✅ | — | Chat model deployment, e.g. `gpt-4o` |
+| `AZURE_OPENAI_API_VERSION` | ✅ | `2024-10-21` | API version |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | ⚠️ Azure | — | Embedding model, e.g. `text-embedding-3-small` |
+| `CONTENT_SAFETY_ENDPOINT` | ⚠️ Azure | — | Azure AI Content Safety endpoint |
+| `CONTENT_SAFETY_KEY` | ⚠️ Azure | — | Content Safety API key |
+| `MAGENT_PROVIDER` | — | `demo` | `demo` = no Azure calls · `azure` = live mode |
+| `BETTER_AUTH_SECRET` | ✅ | — | Min 32-char secret — `openssl rand -hex 32` |
+| `POSTGRES_PASSWORD` | — | `magent` | Change before any shared deploy |
+| `DATABASE_URL` | — | `postgres://magent:magent@localhost:5432/magent_auth` | Compose sets this automatically |
+| `BOOTSTRAP_ADMIN_EMAIL` | ✅ | `admin@localhost` | First admin account email |
+| `BOOTSTRAP_ADMIN_PASSWORD` | ✅ | `ChangeMe_Admin8` | First admin password — change before deploy |
+| `GITHUB_TOKEN` | — | _(empty)_ | PAT for pull-request artifact export |
+| `INFRACOST_CLI_AUTHENTICATION_TOKEN` | — | _(empty)_ | Terraform cost estimates in the sandbox |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | _(empty)_ | OpenTelemetry collector — leave empty to disable |
 
-### Azure AI Content Safety
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `CONTENT_SAFETY_ENDPOINT` | ⚠️ | — | Content Safety resource endpoint |
-| `CONTENT_SAFETY_KEY` | ⚠️ | — | Content Safety API key |
-| `MAGENT_CONTENT_SAFETY_TIMEOUT_SECONDS` | — | `15` | Prompt Shields request timeout |
-
-### Workflow & orchestration limits
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `MAGENT_PROVIDER` | — | `demo` | `demo` for local testing (no Azure calls) · `azure` for live Azure OpenAI |
-| `MAGENT_MAX_REVIEW_ROUNDS` | — | `5` | Max Coder ↔ Reviewer iterations before escalation |
-| `MAGENT_MAX_TOKENS` | — | `2048` | Max tokens per model response |
-| `MAGENT_MAX_CONTEXT_TOKENS` | — | `8000` | Token budget per agent call; triggers summarisation when exceeded |
-| `MAGENT_MAX_CONTEXT_CHARACTERS` | — | `6000` | Character-level context budget guard |
-| `MAGENT_MAX_INPUT_CHARACTERS` | — | `4000` | Max length of the operator's request input |
-
-### Storage paths
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `MAGENT_CHECKPOINT_DIR` | — | `data/checkpoints` | Directory for persisted `WorkflowRun` JSON files |
-| `MAGENT_CHROMA_DIR` | — | `data/chroma` | ChromaDB on-disk persistence directory |
-| `MAGENT_CONVERSATION_LOG_DIR` | — | `data/conversations` | Structured conversation audit log directory |
-
-### Security scanners & sandbox
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `MAGENT_SCANNER_TIMEOUT_SECONDS` | — | `60` | Per-scanner subprocess timeout |
-| `MAGENT_SANDBOX_TIMEOUT_SECONDS` | — | `120` | Docker sandbox execution timeout |
-| `MAGENT_SANDBOX_URL` | — | _(empty)_ | Leave empty for host Docker; Compose sets this to the sandbox worker URL automatically |
-
-### Retry configuration
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `MAGENT_LLM_RETRY_MAX_ATTEMPTS` | — | `2` | Max retry attempts for Azure OpenAI calls |
-| `MAGENT_LLM_RETRY_BASE_SECONDS` | — | `1` | Initial backoff for LLM retries (seconds) |
-| `MAGENT_LLM_RETRY_MAX_SECONDS` | — | `8` | Backoff cap for LLM retries |
-| `MAGENT_ADAPTER_RETRY_MAX_ATTEMPTS` | — | `2` | Max retries for scanners, Docker, and ChromaDB |
-| `MAGENT_ADAPTER_RETRY_BASE_SECONDS` | — | `0.5` | Initial backoff for adapter retries |
-| `MAGENT_ADAPTER_RETRY_MAX_SECONDS` | — | `5` | Backoff cap for adapter retries |
-
-### Authentication (Better Auth + Postgres)
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `BETTER_AUTH_SECRET` | ✅ | — | Min 32-char secret for session signing — generate with `openssl rand -hex 32` |
-| `BETTER_AUTH_URL` | — | `http://localhost:3000` | Public URL of the Next.js app |
-| `NEXT_PUBLIC_APP_URL` | — | `http://localhost:3000` | Client-side base URL |
-| `POSTGRES_USER` | — | `magent` | Postgres username |
-| `POSTGRES_PASSWORD` | — | `magent` | Postgres password — **change before any shared deploy** |
-| `POSTGRES_DB` | — | `magent_auth` | Postgres database name |
-| `DATABASE_URL` | — | `postgres://magent:magent@localhost:5432/magent_auth` | Full Postgres connection string. Compose overrides this automatically. |
-
-### Bootstrap admin
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `BOOTSTRAP_ADMIN_EMAIL` | ✅ | `admin@localhost` | Email for the first admin account created on startup |
-| `BOOTSTRAP_ADMIN_PASSWORD` | ✅ | `ChangeMe_Admin8` | Password (min 8 chars) — **change before any shared deploy** |
-| `BOOTSTRAP_ADMIN_NAME` | — | `Administrator` | Display name for the bootstrap admin |
-| `NEXT_PUBLIC_MAX_REVIEW_ROUNDS` | — | `3` | Review cap exposed to the frontend Self-Healing panel |
-
-### Optional integrations
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | — | _(empty)_ | GitHub OAuth app credentials for social login |
-| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | — | _(empty)_ | Microsoft/Entra OAuth credentials |
-| `MICROSOFT_TENANT_ID` | — | `common` | Entra tenant ID (`common` for multi-tenant) |
-| `GITHUB_TOKEN` | — | _(empty)_ | GitHub PAT for pull-request artifact export |
-| `GITHUB_REPO` | — | _(empty)_ | Target repo for PR export (`owner/repository`) |
-| `INFRACOST_CLI_AUTHENTICATION_TOKEN` | — | _(empty)_ | Infracost token for Terraform price estimates in the sandbox worker |
-
-### Observability (OpenTelemetry)
-
-| Variable | Required | Default | Description |
-|----------|:--------:|---------|-------------|
-| `OTEL_SERVICE_NAME` | — | `magent-autogen` | Service name attached to all traces and logs |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | _(empty)_ | OTLP collector endpoint — leave empty to disable trace export |
+> All other variables (timeouts, storage paths, retry limits, OAuth providers) have sensible defaults and are documented in [`.env.example`](.env.example).
 
 ---
 
