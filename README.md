@@ -1,8 +1,37 @@
 # MagentAutoGen — Automated Cloud Code Generation with Human Oversight
 
-> **v1.0 — Complete** · Full-stack AI pipeline with Azure OpenAI, FastAPI backend, Next.js dashboard, Docker sandbox, RAG, FinOps, and CI/CD — all delivered.
+> **v1.0 — Complete** · Full-stack AI pipeline: Azure OpenAI · FastAPI · Next.js · Docker sandbox · RAG · FinOps · GitHub PR export · CI/CD
 
-A secure, human-governed multi-agent system that generates reviewed **Python** and **Terraform** cloud infrastructure artifacts through a controlled, auditable pipeline — powered by **Azure OpenAI**, **Microsoft Agent Framework**, and a **Next.js** control-plane dashboard.
+A secure, human-governed multi-agent system that accepts a plain-language cloud automation request and produces security-reviewed, policy-compliant **Python** and **Terraform** artifacts — powered by **Azure OpenAI**, **Microsoft Agent Framework**, and a **Next.js** control-plane dashboard.
+
+No code reaches a human-readable output without passing prompt injection screening, plan approval, multi-tool static analysis, an evidence-based reviewer, and a locked-down Docker sandbox.
+
+---
+
+## Table of contents
+
+1. [Workflow](#workflow)
+2. [Architecture](#architecture)
+3. [Features](#-features)
+   - [1 · Multi-agent orchestration](#1--multi-agent-orchestration)
+   - [2 · Security pipeline](#2--security-pipeline-fail-closed)
+   - [3 · Policy RAG](#3--policy-rag)
+   - [4 · FastAPI backend & SSE](#4--fastapi-backend--sse-event-stream)
+   - [5 · Next.js dashboard](#5--nextjs-control-plane-dashboard)
+   - [6 · GitHub PR export](#6--github-pull-request-export)
+   - [7 · Authentication & multi-user](#7--authentication--multi-user)
+   - [8 · Storage & persistence](#8--storage--persistence)
+   - [9 · Observability & reliability](#9--observability--reliability)
+   - [10 · FinOps & cost tracking](#10--finops--cost-tracking)
+   - [11 · Infrastructure & CI/CD](#11--infrastructure--cicd)
+4. [Azure live acceptance](#-azure-live-acceptance)
+5. [Environment variables](#environment-variables)
+6. [Quick start](#quick-start)
+7. [Project structure](#project-structure)
+8. [Safety guarantees](#safety-guarantees)
+9. [Required Azure resources](#required-azure-resources)
+10. [Documentation](#documentation)
+11. [Tech stack](#tech-stack)
 
 ---
 
@@ -68,176 +97,273 @@ flowchart LR
     style VAL   fill:#0d1117,stroke:#30363d,color:#e6edf3
 ```
 
-**Nothing runs on the host machine. Generated code never executes before a human approves the plan.**
+> **Nothing runs on the host machine. Generated code never executes before a human approves the plan.**
 
+---
 
 ## Architecture
 
 | Layer | Technology | Port |
 |-------|-----------|------|
-| Frontend dashboard | Next.js 14 (React / TypeScript / Tailwind) | `3000` |
+| Frontend dashboard | Next.js 14 — React / TypeScript / Tailwind CSS | `3000` |
 | Backend API + SSE | FastAPI + Uvicorn | `8000` |
-| Auth database | Postgres 16 (Better Auth) | `5432` |
-| Validation sandbox | Locked-down Python / Terraform worker | Internal `8081` |
-| Orchestration | Microsoft Agent Framework — typed FSM | — |
-| Policy memory | ChromaDB + Azure OpenAI embeddings | — |
-| Containers | Docker Compose | — |
+| Auth & user database | Postgres 16 (Better Auth) | `5432` |
+| Validation sandbox worker | Locked-down Python / Terraform container | Internal `8081` |
+| Agent orchestration | Microsoft Agent Framework — typed FSM | — |
+| Policy vector store | ChromaDB (on-disk) + Azure OpenAI embeddings | — |
+| Containers | Docker Compose (5-service stack) | — |
 
 ---
 
 ## ✅ Features
 
-### 1 · Multi-agent orchestration (Microsoft Agent Framework)
+### 1 · Multi-agent orchestration
 
-The workflow is a **typed finite-state machine** — not an open-ended chat loop. Every transition is gated and logged.
+The workflow is a **typed finite-state machine** implemented with Microsoft Agent Framework — not an open-ended chat loop. Every state transition is gated, logged, and persisted.
 
-| Agent | Responsibility |
-|-------|---------------|
-| **Planner** | Decomposes the request into a structured plan with step type (Python/Terraform), assumptions, and open questions. Blocks downstream if required questions are unresolved. |
-| **Coder** | Consumes the approved plan + retrieved policy rules. Generates a single Python or Terraform artifact. Injects mandatory governance tags on every Azure resource. Never self-executes. |
-| **Reviewer** | Reads real scanner findings (tfsec, Checkov, Bandit). Issues `APPROVE` or `REJECT` with a required-changes list. Runs up to 5 rounds before escalating to `needs_manual_intervention`. |
-| **FinOps Agent** | Captures token usage after every model call (prompt + completion). Calculates per-agent and per-stage cost estimates using external price tables. Never hardcodes prices. |
-| **Security Agent** | Normalises findings from all static-analysis tools into a common `SecurityFinding` model (tool, rule ID, severity, location, evidence, remediation). |
+| Agent | Role | Key behaviour |
+|-------|------|--------------|
+| **Planner** | Decomposes the request | Produces a structured plan with step type (Python/Terraform), assumptions, open questions. Blocks if required questions are unresolved. |
+| **Coder** | Generates the artifact | Consumes approved plan + retrieved policy rules. Injects mandatory governance tags on every Azure resource. Never self-executes. |
+| **Reviewer** | Evidence-based verdict | Reads real scanner findings. Issues `APPROVE` or `REJECT` with a required-changes list. Hard cap of 5 rounds before escalation to `needs_manual_intervention`. |
+| **FinOps Agent** | Cost accounting | Captures `prompt_tokens` + `completion_tokens` after every model call. Calculates per-agent cost estimates from external price tables. Never hardcodes prices. |
+| **Security Agent** | Finding normalisation | Aggregates and normalises findings from all static-analysis tools into a common `SecurityFinding` model: tool, rule ID, severity, location, evidence, remediation. |
 
-**Approval gate:** the Coder cannot start until the operator explicitly approves the plan. The checkpoint is file-persisted and survives a backend restart.
+**Human approval gate:** the Coder FSM state is unreachable until the operator explicitly approves the plan. The approval is file-persisted — a backend restart does not lose the paused state.
+
+**Self-healing loop:** when the Reviewer rejects, the Coder receives the required-changes list and re-generates. The `SelfHealingPanel` in the dashboard visualises the current round, the delta between versions, and the escalation threshold.
 
 ---
 
 ### 2 · Security pipeline (fail-closed)
 
-- **Azure AI Content Safety — Prompt Shields:** every user input is screened for direct and indirect prompt injection before any agent sees it. If the service is unreachable, the request is blocked — no fallthrough.
-- **tfsec:** Terraform HCL static analysis. Public SSH, public storage, missing encryption, over-broad RBAC — all caught before review.
-- **Checkov:** second-pass Terraform/Python policy check. CRITICAL and HIGH findings are **blocking**; the Reviewer cannot approve until they are resolved.
-- **Bandit:** Python AST security analysis. Detects shell injection, hardcoded secrets, unsafe deserialisation.
-- **Tag governance engine:** post-generation regex/AST check that every Azure resource carries `environment`, `owner`, and `cost_center` tags. Missing tags are raised as a CRITICAL finding.
-- **Docker validation sandbox:** the approved artifact runs in a locked-down Linux container — no network egress, read-only root filesystem, CPU/memory/process limits, and no Docker socket. `terraform apply` is explicitly prohibited.
-- **Missing scanner = blocked:** if a required scanner binary is absent or crashes, the scan is treated as failed, not passed.
+Every security control is **fail-closed**: an outage or missing binary is a blocking failure, not a pass.
+
+| Control | What it catches |
+|---------|----------------|
+| **Azure AI Content Safety — Prompt Shields** | Direct and indirect prompt injection in the operator's input. Blocks before any agent sees the request. Unreachable service = request blocked. |
+| **tfsec** | Terraform HCL: public SSH ports, public storage buckets, missing encryption, over-broad RBAC, unencrypted secrets. |
+| **Checkov** | Second-pass Terraform + Python policy check. CRITICAL and HIGH findings are blocking; Reviewer cannot issue APPROVE until they are resolved. |
+| **Bandit** | Python AST analysis: shell injection, hardcoded credentials, unsafe `pickle`, `subprocess` with `shell=True`. |
+| **Tag governance engine** | Post-generation check that every `azurerm_*` resource block carries `environment`, `owner`, and `cost_center` tags. Missing tags → CRITICAL finding. |
+| **Local policy fallback** | `local_policy.py` provides rule-based injection detection when Content Safety is unavailable — maintains fail-closed behaviour locally. |
+| **Docker validation sandbox** | Generated artifact executes in a locked-down Linux container: no network egress, read-only root filesystem, CPU/memory/PID limits, no Docker socket mounted. `terraform apply` is explicitly blocked. |
 
 ---
 
-### 3 · Policy RAG (ChromaDB + Azure OpenAI embeddings)
+### 3 · Policy RAG
 
-- Corporate policy documents (Terraform standards, cloud security baselines, compliance rules, FinOps tagging) are chunked, embedded, and stored in a **ChromaDB persistent collection**.
-- Each ingestion records a SHA-256 content hash and a manifest entry so policy drift is traceable.
-- Before code generation the Coder retrieves only rules whose similarity score exceeds a **configurable relevance threshold** — no weak matches are injected into the prompt.
-- **Context bounding:** conversation history is summarised when it approaches the token limit. Omitted content is recorded in an audit trail.
-- **Ingestion CLI:** `python -m src.rag.ingest <file>` — works locally with sentence-transformers, switches to Azure OpenAI embeddings when credentials are present.
+Corporate policy documents (Terraform standards, cloud security baselines, compliance rules, FinOps tagging requirements) are ingested, embedded, and used to ground Coder output.
+
+- **Storage:** ChromaDB persistent collection at `data/chroma/`. Each chunk carries `rule_id`, `source_file`, `source_hash` (SHA-256), and `ingested_at` metadata.
+- **Incremental ingestion:** re-running the ingestion CLI after editing a policy file updates only changed chunks (detected by SHA-256 diff). A manifest JSON records the full ingestion history.
+- **Relevance gate:** the Coder retrieves only rules whose cosine similarity score exceeds `MAGENT_RAG_RELEVANCE_THRESHOLD`. Weak matches are never injected into the prompt.
+- **Local / Azure dual mode:** works locally with `sentence-transformers` (no Azure credential required); switches to Azure OpenAI `text-embedding-3-small` when `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` is set.
+- **Context bounding:** conversation history is summarised before it hits `MAGENT_MAX_CONTEXT_TOKENS`. Omitted content is recorded in the structured conversation audit log.
+- **Ingestion CLI:**
+  ```bash
+  python -m src.rag.ingest <file> --output data/chroma/policy_manifest.json
+  ```
 
 ---
 
 ### 4 · FastAPI backend + SSE event stream
 
-- **REST API:** `POST /api/runs` to submit a request, `GET /api/runs/{id}` for state, `POST /api/runs/{id}/approve` / `/reject`, `GET /api/runs/{id}/artifact` for download.
-- **Server-Sent Events:** `/api/runs/{id}/events/stream` pushes every workflow event (screening, planning, approval, retrieval, coding, scanning, review, sandbox, cost, completion) to the browser in real time.
-- **Versioned event taxonomy:** every event carries a schema version, timestamp, run ID, component name, and redacted payload.
-- **File-backed run store:** `WorkflowRun` state is persisted to JSON on every transition. Paused approval checkpoints survive a full service restart.
-- **Structured logging:** JSON log handler with OpenTelemetry-compatible fields. Secrets are redacted at the log layer — keys, tokens, and endpoints never appear in output.
-- **Retry + error envelopes:** bounded exponential backoff for Azure OpenAI, ChromaDB, scanner subprocesses, and Docker calls. Every error is wrapped in a typed `ErrorEnvelope` (source, message, retryable, timestamp).
+#### REST API
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/runs` | Submit a new automation request |
+| `GET` | `/api/runs/{id}` | Get full run state |
+| `POST` | `/api/runs/{id}/approve` | Approve the Planner's plan |
+| `POST` | `/api/runs/{id}/reject` | Reject the plan with feedback |
+| `GET` | `/api/runs/{id}/artifact` | Download the generated artifact |
+| `GET` | `/api/runs/{id}/events/stream` | SSE stream of all workflow events |
+| `POST` | `/api/runs/{id}/export-pr` | Export artifact as a GitHub Pull Request |
+
+#### Server-Sent Events
+
+Every workflow stage emits a typed event: `screening`, `planning`, `awaiting_approval`, `policy_retrieval`, `coding`, `scanning`, `reviewing`, `sandbox`, `cost_summary`, `completed`, `failed`, `escalated`. Each event carries: schema version, timestamp, run ID, component name, stage, severity, and a secrets-redacted payload.
+
+#### Reliability
+
+- **File-backed run store:** `WorkflowRun` state is serialised to JSON on every transition under `data/checkpoints/`. A full API restart does not lose paused runs.
+- **Retry + error envelopes:** bounded exponential backoff for Azure OpenAI, ChromaDB, scanner subprocesses, and Docker calls. Every error is wrapped in a typed `ErrorEnvelope` (source, message, retryable flag, timestamp).
+- **Structured JSON logs:** OpenTelemetry-compatible fields on every log record. Secrets (API keys, tokens, endpoints) are stripped at the log layer by `src/utils/redaction.py` before any handler sees the record.
 
 ---
 
 ### 5 · Next.js control-plane dashboard
 
-| Screen | What it shows |
-|--------|---------------|
-| **New Mission** | Request input form with template picker and example prompts |
-| **Live Run** | Real-time agent graph (React Flow) — active node highlighted, approval gate shown as pause state, terminal states colour-coded |
-| **Event Console** | SSE-driven terminal that prints every workflow event with timestamp and component label |
-| **Plan Editor** | Structured plan view with approve / reject + feedback text box |
-| **Code Viewer** | Syntax-highlighted artifact diff, copy and download buttons |
-| **Scan Dashboard** | Per-tool finding list, severity badges, block/pass summary |
-| **FinOps Panel** | Per-agent token counts, cost estimate with disclaimer, session total |
-| **Run History** | Searchable list of all runs; click any to reload full state |
-| **Agent Inspector** | Drill into any agent node to see its input, output, and timing |
-| **Red Team Panel** | Built-in prompt injection fixtures; submit and confirm block without leaving the UI |
-| **Admin Panel** | User management, role assignment, bootstrap admin configuration |
-| **Export to PR** | One-click button to open a GitHub Pull Request with the generated artifact |
+All dashboard state is driven by the FastAPI SSE event stream and the persisted run state — there is no client-side polling state machine.
 
-All dashboard state is derived from the FastAPI SSE event stream and persisted run state — no client-side polling state machine.
+| Component | Description |
+|-----------|-------------|
+| **`RequestForm`** | Mission input with template picker (`TemplatePanel`) and example request library |
+| **`TemplatePanel`** | Pre-built request templates for common cloud automation tasks (storage account, VNet, AKS, Function App) |
+| **`AgentGraph`** | React Flow graph of the full workflow — active node highlighted, paused state visualised, terminal states colour-coded |
+| **`StageProgress`** | Linear stage progress bar showing the current FSM state across the 7 pipeline stages |
+| **`TerminalConsole`** | SSE-driven event terminal with timestamp, component label, and severity colouring |
+| **`PlanEditor`** | Structured plan view with approve / reject radio and feedback text area |
+| **`SelfHealingPanel`** | Tracks the Coder ↔ Reviewer revision loop: current round, diff of changes, escalation threshold indicator |
+| **`CodeViewer`** | Syntax-highlighted artifact with diff view, copy, download, and Export to PR buttons |
+| **`ScanDashboard`** | Per-tool finding list with severity badges (CRITICAL / HIGH / MEDIUM / LOW), block/pass summary, and remediation hints |
+| **`AgentInspector`** | Drill-in panel for any graph node: agent input, output, token count, duration, and cost |
+| **`FinOpsCharts`** | Per-agent and per-stage token count charts, session cost estimate, and billing disclaimer |
+| **`KPIMetrics`** | Top-level KPI bar: total runs, pass rate, average cost, average duration |
+| **`DashboardOverview`** | Summary landing page combining KPIs, recent run list, and system health indicators |
+| **`TabbedDashboard`** | Tab container that orchestrates all live-run panels (graph, terminal, plan, code, scans, FinOps) |
+| **`RunHistory`** | Searchable, paginated list of all completed and paused runs — click any to reload full state |
+| **`RedTeamPanel`** | Built-in prompt injection test fixtures; submit and verify the block without leaving the dashboard |
+| **`UserManagement`** | Admin panel for listing users, changing roles (`admin` / `operator`), and revoking sessions |
 
-#### GitHub Pull Request export
+---
 
-When a run completes successfully, the **Export to PR** button in the Code Viewer calls `src/integrations/github_exporter.py`, which:
+### 6 · GitHub Pull Request export
 
-1. Creates a new branch in the target repository (`GITHUB_REPO`)
+When a run completes, the **Export to PR** button in `CodeViewer` calls `src/integrations/github_exporter.py`, which:
+
+1. Creates a new branch in `GITHUB_REPO` named `magent/<run-id>`
 2. Commits the generated Python or Terraform artifact to that branch
-3. Opens a **draft Pull Request** with the run ID, scanner findings summary, and FinOps estimate in the PR description
-4. Returns the PR URL to the dashboard for one-click navigation
+3. Opens a **draft Pull Request** whose description includes: run ID, plan summary, scanner finding counts by severity, and the FinOps cost estimate
+4. Returns the PR URL — the dashboard renders it as a direct link
 
-Requires `GITHUB_TOKEN` (a GitHub Personal Access Token with `repo` scope) and `GITHUB_REPO` (`owner/repository`) set in `.env`.
-
----
-
-### 6 · Authentication & multi-user
-
-- **Better Auth** — production-grade auth library running against **Postgres 16**. Handles session lifecycle, token rotation, and credential hashing out of the box.
-- **Session model:** server-side sessions stored in Postgres; the browser holds a signed, HTTP-only session cookie. No JWTs stored client-side.
-- **CSRF protection:** built-in double-submit cookie pattern on all mutating endpoints.
-- **Secure cookies:** `HttpOnly`, `SameSite=Strict`, `Secure` in production.
-- **Register / Login flow:** `/register` and `/login` pages in Next.js; credentials validated server-side before session creation.
-- **Bootstrap admin:** on first Docker Compose start, a seed job reads `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` from `.env` and creates the first administrator account — no manual DB access needed.
-- **Role-based access:** `admin` vs. `operator` roles stored in Postgres and checked in the Next.js middleware on every protected route and in FastAPI on every API call.
-- **Protected routes:** all `/agents`, `/runs`, `/finops`, `/security`, `/admin` routes require an active session; unauthenticated requests are redirected to `/login`.
+**Requirements:** `GITHUB_TOKEN` (PAT with `repo` scope) and `GITHUB_REPO` (`owner/repository`) in `.env`.
 
 ---
 
-### 7 · Storage & persistence
+### 7 · Authentication & multi-user
 
-The system uses **three separate storage layers**, each purpose-built:
-
-| Layer | Technology | What it stores |
-|-------|-----------|----------------|
-| **Auth & users** | Postgres 16 | User accounts, sessions, roles, CSRF tokens |
-| **Workflow state** | File-backed JSON store | `WorkflowRun` objects — plan, artifact, scan results, approval status, event history, cost records |
-| **Policy vectors** | ChromaDB (on-disk) | Chunked policy document embeddings with SHA-256 content hashes and manifest metadata |
-
-**Workflow run store detail:**
-- Every state transition (created → planning → awaiting_approval → coding → reviewing → done) is persisted immediately to disk as a JSON file under `data/checkpoints/`.
-- A run paused at the human approval gate survives a full API restart — the operator can refresh the browser and continue from exactly where they left off.
-- Run files include the full event history, agent messages (secrets redacted), cost records, and final artifact — enabling complete post-hoc audit.
-- Runs are indexed by UUID and listed in the Run History dashboard screen.
-
-**ChromaDB policy store detail:**
-- Policies are stored in a named collection (`magent_policies`) in a persistent on-disk ChromaDB instance at `data/chroma/`.
-- Each document chunk carries metadata: `rule_id`, `source_file`, `source_hash`, `ingested_at`.
-- Re-running ingestion after editing a policy file updates only changed chunks (detected by SHA-256 hash diff).
+- **Better Auth** running against Postgres 16 — production-grade library handling session lifecycle, token rotation, and credential hashing.
+- **Session model:** server-side sessions in Postgres; browser holds a signed, `HttpOnly`, `SameSite=Strict` cookie. No JWTs client-side.
+- **CSRF protection:** double-submit cookie pattern on all mutating endpoints.
+- **Register / Login:** `/register` and `/login` Next.js pages with server-side credential validation.
+- **Bootstrap admin:** on first Compose start, a seed job reads `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` and creates the first admin — no manual DB access needed.
+- **Role-based access:** `admin` vs `operator` roles stored in Postgres, checked in Next.js middleware (frontend) and FastAPI dependency (backend).
+- **Optional social login:** GitHub OAuth and Microsoft/Entra OAuth — enabled by setting `GITHUB_CLIENT_ID` / `MICROSOFT_CLIENT_ID` in `.env`.
+- **Protected routes:** `/agents`, `/runs`, `/finops`, `/security`, `/admin` all require an active session; unauthenticated requests redirect to `/login`.
 
 ---
 
-### 8 · FinOps & cost observability
+### 8 · Storage & persistence
 
-- Every model call (Planner, Coder, Reviewer, FinOps Agent) records `prompt_tokens` and `completion_tokens` from the Azure OpenAI response.
-- Prices are loaded from `config/pricing.json` — never hardcoded. Supports per-model input/output/embedding rates.
-- The dashboard FinOps panel shows: session total, per-agent breakdown, per-stage breakdown, and an estimate disclaimer (*"These are estimates. See Azure Cost Management for actual billing."*).
-- Token, context, scanner timeout, sandbox timeout, and iteration limits are all explicit configuration values — no magic numbers in code.
+The system uses three purpose-built storage layers with no cross-contamination:
+
+| Layer | Technology | Data |
+|-------|-----------|------|
+| **Auth & users** | Postgres 16 | Accounts, sessions, roles, CSRF tokens, OAuth tokens |
+| **Workflow state** | File-backed JSON | `WorkflowRun`: FSM state, plan, artifact, scan results, approval, event log, cost records |
+| **Conversation audit** | File-backed JSONL | Per-run structured conversation log with redacted agent messages |
+| **Policy vectors** | ChromaDB (on-disk) | Document chunk embeddings, SHA-256 hashes, ingestion manifest |
+
+**Run checkpoint detail:**
+- State is written to `data/checkpoints/<run-id>.json` on every FSM transition.
+- A run paused at the approval gate survives a full API restart — operator refreshes and continues.
+- Audit log includes full event history with secrets stripped.
+
+**Conversation log detail:**
+- `src/utils/conversation_logger.py` writes a JSONL file per run to `data/conversations/`.
+- Each line records: timestamp, agent role, token counts, and the redacted message content.
+- `src/utils/run_logger.py` tracks structured per-run metadata (start time, end state, cost total, artifact hash).
 
 ---
 
-### 9 · Infrastructure & CI/CD
+### 9 · Observability & reliability
 
-- **Docker Compose:** five-service stack — FastAPI API, Next.js frontend, Postgres, isolated sandbox worker, and first-admin seed job. Services communicate over a private Docker network; the sandbox has no internet egress.
-- **GitHub Actions CI:** on every push — `ruff` lint, `bandit` security scan, full Python test suite, Next.js type-check + build, and Docker build validation for API + sandbox images. Integration tests are automatically skipped when Azure credentials are absent.
-- **Makefile:** `make run-api`, `make run-frontend`, `make compose-up`, `make compose-down`, `make test`, `make lint`, `make ingest`.
-- **104 tests across 19 files** — agents, workflow FSM, scanner normalisation, sandbox runner, RAG ingestion/retrieval, context bounding, secret redaction, prompt injection fixtures, healthcheck, and UI integration.
+#### Logging
+
+- `src/utils/structured_logging.py` installs a JSON log handler on the root logger with OpenTelemetry-compatible fields: `trace_id`, `span_id`, `service.name`, `timestamp`, `level`, `component`.
+- `src/utils/redaction.py` runs before any handler receives a record. It strips API keys, bearer tokens, connection strings, and endpoint URLs using a configurable pattern list.
+- `src/utils/audit_log.py` writes an append-only audit log to `data/audit/` — separate from application logs — recording operator actions (submit, approve, reject, export).
+
+#### Telemetry
+
+- `src/utils/telemetry.py` configures an OpenTelemetry tracer and meter. When `OTEL_EXPORTER_OTLP_ENDPOINT` is set, traces and metrics are exported to the configured collector.
+- `OTEL_SERVICE_NAME` labels all telemetry as `magent-autogen` by default.
+
+#### Retry
+
+- `src/utils/retry.py` provides two bounded exponential-backoff decorators:
+  - `@llm_retry` — wraps Azure OpenAI calls (configurable attempts, base delay, cap).
+  - `@adapter_retry` — wraps scanner subprocesses, Docker calls, and ChromaDB operations.
+- All retry parameters are environment variables — no hardcoded values.
+
+#### Health check
+
+```bash
+python -m src.healthcheck           # Config validation only — no network call
+python -m src.healthcheck --local   # Validates local tools (tfsec, checkov, bandit, docker)
+python -m src.healthcheck --live    # Minimal live Azure OpenAI request
+```
 
 ---
 
-## 🔵 Azure live acceptance (credentials required)
+### 10 · FinOps & cost tracking
 
-The following are fully implemented and fail-closed locally. They require live Azure resources to complete acceptance testing:
+- `src/utils/cost_tracker.py` captures `prompt_tokens` and `completion_tokens` from every Azure OpenAI response object.
+- Prices are loaded from `config/pricing.json` at startup — never hardcoded. The file supports per-model input, output, and embedding rates.
+- The `FinOpsCharts` dashboard component shows: per-agent token breakdown, per-stage cost, session total, and an estimate disclaimer (*"Estimates only. See Azure Cost Management for actual billing."*).
+- `KPIMetrics` shows the session cost alongside run count, pass rate, and duration.
+- The GitHub PR export includes the session FinOps estimate in the PR description body.
+
+---
+
+### 11 · Infrastructure & CI/CD
+
+#### Docker Compose stack
+
+| Service | Image | Role |
+|---------|-------|------|
+| `api` | `docker/Dockerfile.api` | FastAPI backend |
+| `frontend` | `frontend/Dockerfile` | Next.js dashboard |
+| `postgres` | `postgres:16-alpine` | Auth + user database |
+| `sandbox` | `docker/Dockerfile.sandbox` | Isolated validation worker |
+| `bootstrap` | (seed job) | Creates first admin on first start |
+
+Services communicate over a private Docker bridge network. The sandbox has no internet egress and no access to the Docker socket.
+
+#### GitHub Actions CI
+
+On every push and pull request:
+
+| Step | Tool | What it checks |
+|------|------|---------------|
+| Lint | `ruff` | Python style and imports |
+| Security scan | `bandit` | Python AST security |
+| Tests | `pytest` | 104 tests — Azure/Docker tests auto-skipped without credentials |
+| Frontend build | `tsc` + `next build` | TypeScript type-check and production build |
+| Docker build | `docker build` | API and sandbox image build validation |
+
+#### Makefile targets
+
+| Target | Description |
+|--------|-------------|
+| `make run-api` | Start FastAPI dev server on `:8000` |
+| `make run-frontend` | Start Next.js dev server on `:3000` |
+| `make compose-up` | Start full 5-service Docker Compose stack |
+| `make compose-down` | Stop and remove Compose containers |
+| `make test` | Run full Python test suite |
+| `make lint` | Run `ruff` + `bandit` |
+| `make ingest` | Ingest default policy documents into ChromaDB |
+
+---
+
+## 🔵 Azure live acceptance
+
+The following features are fully implemented and fail-closed locally. They require live Azure resources to complete acceptance testing:
 
 | Item | What's done | What's needed |
 |------|-------------|--------------|
-| **Azure AI Content Safety Prompt Shields** | Adapter + fail-closed logic implemented | Live `CONTENT_SAFETY_ENDPOINT` + key |
-| **Azure OpenAI embedding deployment** | Local sentence-transformers fallback active | Deploy `text-embedding-3-small`, set `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` |
-| **Azure Cost Management reconciliation** | Estimate calculation and UI complete | Run a live Azure session, compare with billing |
+| **Azure AI Content Safety Prompt Shields** | Adapter + fail-closed logic complete | Live `CONTENT_SAFETY_ENDPOINT` + key |
+| **Azure OpenAI embedding deployment** | Local `sentence-transformers` fallback active | Deploy `text-embedding-3-small`, set `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` |
+| **Azure Cost Management reconciliation** | Estimate calculation and dashboard UI complete | Live Azure session to compare estimates with actual billing |
 | **Full E2E evidence capture** | Local demo runbook complete | Live run to record all 6 acceptance scenarios |
 
 ---
 
 ## Environment variables
 
-Copy [`.env.example`](.env.example) to `.env`. The full file is documented inline — here are the variables you need to set to run the app.
+Copy [`.env.example`](.env.example) to `.env`. The example file is fully documented inline. The table below covers every variable you need to set to run the app.
 
 | Variable | Required | Default | Notes |
 |----------|:--------:|---------|-------|
@@ -249,23 +375,25 @@ Copy [`.env.example`](.env.example) to `.env`. The full file is documented inlin
 | `CONTENT_SAFETY_ENDPOINT` | ⚠️ Azure | — | Azure AI Content Safety endpoint |
 | `CONTENT_SAFETY_KEY` | ⚠️ Azure | — | Content Safety API key |
 | `MAGENT_PROVIDER` | — | `demo` | `demo` = no Azure calls · `azure` = live mode |
+| `MAGENT_MAX_REVIEW_ROUNDS` | — | `5` | Hard cap on Coder ↔ Reviewer iterations |
 | `BETTER_AUTH_SECRET` | ✅ | — | Min 32-char secret — `openssl rand -hex 32` |
 | `POSTGRES_PASSWORD` | — | `magent` | Change before any shared deploy |
-| `DATABASE_URL` | — | `postgres://magent:magent@localhost:5432/magent_auth` | Compose sets this automatically |
+| `DATABASE_URL` | — | `postgres://magent:magent@localhost:5432/magent_auth` | Compose overrides this automatically |
 | `BOOTSTRAP_ADMIN_EMAIL` | ✅ | `admin@localhost` | First admin account email |
 | `BOOTSTRAP_ADMIN_PASSWORD` | ✅ | `ChangeMe_Admin8` | First admin password — change before deploy |
-| `GITHUB_TOKEN` | — | _(empty)_ | GitHub PAT (`repo` scope) — enables the **Export to PR** button to open a Pull Request with the generated artifact |
-| `INFRACOST_CLI_AUTHENTICATION_TOKEN` | — | _(empty)_ | Terraform cost estimates in the sandbox |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | _(empty)_ | OpenTelemetry collector — leave empty to disable |
+| `GITHUB_TOKEN` | — | _(empty)_ | PAT with `repo` scope — enables Export to PR |
+| `GITHUB_REPO` | — | _(empty)_ | Target repo for PR export (`owner/repository`) |
+| `INFRACOST_CLI_AUTHENTICATION_TOKEN` | — | _(empty)_ | Terraform cost estimates inside the sandbox |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | _(empty)_ | OTLP collector endpoint — leave empty to disable |
 
-> All other variables (timeouts, storage paths, retry limits, OAuth providers) have sensible defaults and are documented in [`.env.example`](.env.example).
+> All remaining variables (storage paths, timeouts, retry limits, OAuth providers) have sensible defaults and are documented in [`.env.example`](.env.example).
 
 ---
 
 ## Quick start
 
-
 ### Prerequisites
+
 - Python 3.11+
 - Node.js 18+
 - Docker Desktop (Linux containers mode)
@@ -276,6 +404,7 @@ Copy [`.env.example`](.env.example) to `.env`. The full file is documented inlin
 # 1. Python environment
 python -m venv .venv
 .venv\Scripts\activate          # Windows
+source .venv/bin/activate       # macOS / Linux
 pip install -r requirements.txt
 
 # 2. Frontend
@@ -283,25 +412,25 @@ cd frontend && npm ci && cd ..
 
 # 3. Configure environment
 cp .env.example .env
-# Edit .env:
-#   - Set BOOTSTRAP_ADMIN_EMAIL / BOOTSTRAP_ADMIN_PASSWORD
-#   - For Azure mode: add AZURE_OPENAI_*, CONTENT_SAFETY_*, BETTER_AUTH_SECRET
+# Minimum required edits:
+#   BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD, BETTER_AUTH_SECRET
+#   For Azure mode: AZURE_OPENAI_*, CONTENT_SAFETY_*
 
-# 4. Run
+# 4a. Run locally (two terminals)
 make run-api          # Terminal 1 — FastAPI on :8000
 make run-frontend     # Terminal 2 — Next.js on :3000
 
-# Or start everything at once
+# 4b. Or run the full stack with Docker Compose
 make compose-up
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and sign in with the bootstrap admin from `.env`.
+Open [http://localhost:3000](http://localhost:3000) and sign in with the bootstrap admin credentials from `.env`.
 
-### Tests
+### Run tests
 
 ```bash
-make test                                        # All unit tests
-python -m pytest tests/ -v -m "not integration"  # Exclude Docker/Azure tests
+make test                                         # Full suite (Azure/Docker tests auto-skipped)
+python -m pytest tests/ -v -m "not integration"  # Exclude integration tests explicitly
 ```
 
 ### Ingest policy documents
@@ -313,47 +442,98 @@ python -m src.rag.ingest data/internal_rules.txt --output data/chroma/policy_man
 ### Health check
 
 ```bash
-python -m src.healthcheck          # Validate config (no network call)
-python -m src.healthcheck --live   # Minimal live Azure request
+python -m src.healthcheck           # Config validation — no network call
+python -m src.healthcheck --local   # Validates local tools (tfsec, checkov, bandit, docker)
+python -m src.healthcheck --live    # Minimal live Azure request
 ```
 
 ---
 
-## Required Azure resources
+## Project structure
 
-| Resource | Purpose |
-|----------|---------|
-| Azure OpenAI — chat deployment | Planner, Coder, Reviewer, FinOps agents |
-| Azure OpenAI — embedding deployment | Policy RAG vector store |
-| Azure AI Content Safety (Prompt Shields) | Input screening before agent ingestion |
-
-All values are read from environment variables only. See [`.env.example`](.env.example) for the full list.
+```
+MagentsAutoGen/
+├── src/
+│   ├── agents/              # Planner, Coder, Reviewer, FinOps, Security agents
+│   ├── api/                 # FastAPI server, SSE, auth middleware
+│   ├── config/              # Typed settings (Pydantic), LLM config
+│   ├── integrations/        # GitHub PR exporter
+│   ├── rag/                 # ChromaDB ingestion, vector store, retrieval
+│   ├── security/            # Content Safety, scanners, sandbox, tag checker, local policy
+│   ├── utils/               # Audit log, context manager, cost tracker, redaction,
+│   │                        #   retry, run logger, conversation logger, telemetry
+│   ├── workflow/            # FSM models, orchestrator, run store
+│   ├── app_factory.py       # FastAPI app factory
+│   └── healthcheck.py       # CLI health check
+├── frontend/
+│   ├── src/
+│   │   ├── app/             # Next.js app router pages (runs, agents, finops, security, admin)
+│   │   ├── components/      # All dashboard UI components (see §5)
+│   │   ├── hooks/           # useEventStream, useFinops
+│   │   ├── lib/             # API client, auth client, event types, run history, templates
+│   │   └── middleware.ts    # Session-based route protection
+│   └── scripts/
+│       └── bootstrap-admin.ts  # First-admin seed script
+├── tests/                   # 104 tests across 19 files
+├── config/
+│   └── pricing.json         # Per-model token pricing (never hardcoded)
+├── data/
+│   └── internal_rules.txt   # Default policy source document
+├── deploy/                  # Bicep IaC, Azure deploy scripts
+├── docker/                  # Dockerfile.api, Dockerfile.sandbox
+├── docs/
+│   └── architecture.md      # Full C4 architecture and component spec
+├── .github/workflows/ci.yml # GitHub Actions CI pipeline
+├── docker-compose.yml       # 5-service Compose stack
+├── Makefile                 # Developer task runner
+└── .env.example             # Fully documented environment variable template
+```
 
 ---
 
 ## Safety guarantees
 
-| Guarantee | How it is enforced |
-|-----------|--------------------|
-| No host execution | Docker is the only runtime; sandbox has no Docker socket |
-| No code before approval | Workflow FSM blocks Coder until human approves |
-| No `terraform apply` | Sandbox validates syntax only |
-| Scanner outage = failure | All scanners fail-closed; missing tool = blocked |
-| No secrets in logs | Central redaction applied to all log output |
-| No secrets in source | `.env` is git-ignored; `.env.example` only |
+| Guarantee | Mechanism |
+|-----------|-----------|
+| No host code execution | Docker is the only runtime; sandbox has no Docker socket |
+| No code before approval | FSM state machine blocks Coder until human explicitly approves |
+| No `terraform apply` | Sandbox validates syntax only — `apply` is blocked at the entrypoint |
+| Scanner outage = failure | All scanners fail-closed; absent or crashed tool = blocked |
+| No secrets in logs | `src/utils/redaction.py` strips keys and tokens before any log handler |
+| No secrets in source | `.env` is git-ignored; only `.env.example` is committed |
+| Prompt injection blocked | Azure AI Content Safety screens every request; local fallback when offline |
+| Audit trail | Append-only audit log in `data/audit/` records every operator action |
+
+---
+
+## Required Azure resources
+
+| Resource | Used by |
+|----------|---------|
+| Azure OpenAI — chat deployment | Planner, Coder, Reviewer, FinOps agents |
+| Azure OpenAI — embedding deployment | Policy RAG vector store |
+| Azure AI Content Safety (Prompt Shields) | Input screening before any agent receives the request |
+
+All credentials are read from environment variables only. No Azure resource is provisioned by the application at runtime.
 
 ---
 
 ## Documentation
 
-See [`docs/architecture.md`](docs/architecture.md) for the full system architecture, C4 component diagrams, agent design, security pipeline, trust boundaries, and deployment model.
+See [`docs/architecture.md`](docs/architecture.md) for the full C4 architecture diagrams, component specifications, agent design decisions, security pipeline design, trust boundaries, and Azure production deployment model.
 
 ---
 
 ## Tech stack
 
-**Backend:** Python 3.11 · FastAPI · Microsoft Agent Framework · ChromaDB · Bandit · Checkov · tfsec · Docker SDK  
-**Frontend:** Next.js 14 · React · TypeScript · Tailwind CSS · React Flow · Better Auth  
-**Azure:** Azure OpenAI · Azure AI Content Safety · Postgres 16  
-**DevOps:** Docker Compose · GitHub Actions · Makefile · ruff · pytest
-
+| Layer | Technology |
+|-------|-----------|
+| **Agent orchestration** | Python 3.11 · Microsoft Agent Framework |
+| **Backend** | FastAPI · Uvicorn · Pydantic v2 |
+| **Security analysis** | Bandit · Checkov · tfsec · Docker SDK |
+| **Vector store** | ChromaDB · sentence-transformers · Azure OpenAI embeddings |
+| **Frontend** | Next.js 14 · React 18 · TypeScript · Tailwind CSS · React Flow |
+| **Auth** | Better Auth · Postgres 16 |
+| **Observability** | OpenTelemetry · structured JSON logging |
+| **DevOps** | Docker Compose · GitHub Actions · Makefile · ruff · pytest |
+| **Azure** | Azure OpenAI · Azure AI Content Safety |
