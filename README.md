@@ -363,7 +363,12 @@ The following features are fully implemented and fail-closed locally. They requi
 
 ## Environment variables
 
-Copy [`.env.example`](.env.example) to `.env`. The example file is fully documented inline. The table below covers every variable you need to set to run the app.
+Copy [`.env.example`](.env.example) to `.env`. The example file is fully documented inline.
+
+**Legend — Required column:**
+- `✅` = always required — app won't start without it
+- `Azure` = required only when `MAGENT_PROVIDER=azure` (live Azure mode)
+- `—` = optional, has a sensible default
 
 | Variable | Required | Default | Notes |
 |----------|:--------:|---------|-------|
@@ -371,9 +376,9 @@ Copy [`.env.example`](.env.example) to `.env`. The example file is fully documen
 | `AZURE_OPENAI_API_KEY` | ✅ | — | Azure OpenAI API key |
 | `AZURE_OPENAI_DEPLOYMENT_NAME` | ✅ | — | Chat model deployment, e.g. `gpt-4o` |
 | `AZURE_OPENAI_API_VERSION` | ✅ | `2024-10-21` | API version |
-| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | ⚠️ Azure | — | Embedding model, e.g. `text-embedding-3-small` |
-| `CONTENT_SAFETY_ENDPOINT` | ⚠️ Azure | — | Azure AI Content Safety endpoint |
-| `CONTENT_SAFETY_KEY` | ⚠️ Azure | — | Content Safety API key |
+| `AZURE_OPENAI_EMBEDDING_DEPLOYMENT` | Azure | — | Embedding model, e.g. `text-embedding-3-small` |
+| `CONTENT_SAFETY_ENDPOINT` | Azure | — | Azure AI Content Safety endpoint |
+| `CONTENT_SAFETY_KEY` | Azure | — | Content Safety API key |
 | `MAGENT_PROVIDER` | — | `demo` | `demo` = no Azure calls · `azure` = live mode |
 | `MAGENT_MAX_REVIEW_ROUNDS` | — | `5` | Hard cap on Coder ↔ Reviewer iterations |
 | `BETTER_AUTH_SECRET` | ✅ | — | Min 32-char secret — `openssl rand -hex 32` |
